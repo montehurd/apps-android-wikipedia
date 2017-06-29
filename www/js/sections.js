@@ -1,6 +1,9 @@
 var bridge = require("./bridge");
 var transformer = require("./transformer");
 var clickHandlerSetup = require("./onclick");
+var pagelib = require("wikimedia-page-library");
+var lazyLoadViewportDistanceMultiplier = 2; // Load images on the current screen up to one ahead.
+var lazyLoadTransformer = new pagelib.LazyLoadTransformer(window, lazyLoadViewportDistanceMultiplier);
 
 bridge.registerListener( "clearContents", function() {
     clearContents();
@@ -60,6 +63,8 @@ bridge.registerListener( "getTextSelection", function( payload ) {
 });
 
 bridge.registerListener( "displayLeadSection", function( payload ) {
+    var lazyDocument;
+
     // This might be a refresh! Clear out all contents!
     clearContents();
 
@@ -75,12 +80,6 @@ bridge.registerListener( "displayLeadSection", function( payload ) {
     issuesContainer.id = "issues_container";
     document.getElementById( "content" ).appendChild( issuesContainer );
 
-    var content = document.createElement( "div" );
-    content.setAttribute( "dir", window.directionality );
-    content.innerHTML = payload.section.text;
-    content.id = "content_block_0";
-
-    document.head.getElementsByTagName("base")[0].setAttribute("href", payload.siteBaseUrl);
     window.apiLevel = payload.apiLevel;
     window.string_table_infobox = payload.string_table_infobox;
     window.string_table_other = payload.string_table_other;
@@ -88,10 +87,29 @@ bridge.registerListener( "displayLeadSection", function( payload ) {
     window.string_expand_refs = payload.string_expand_refs;
     window.pageTitle = payload.title;
     window.isMainPage = payload.isMainPage;
+    window.isFilePage = payload.isFilePage;
     window.fromRestBase = payload.fromRestBase;
     window.isBeta = payload.isBeta;
     window.siteLanguage = payload.siteLanguage;
     window.isNetworkMetered = payload.isNetworkMetered;
+
+    lazyDocument = document.implementation.createHTMLDocument( );
+    var content = lazyDocument.createElement( "div" );
+    content.setAttribute( "dir", window.directionality );
+    content.id = "content_block_0";
+    content.innerHTML = payload.section.text;
+
+    if (!window.isMainPage) {
+        if (!window.isFilePage) {
+            lazyLoadTransformer.transform( content );
+        }
+
+        if (!window.isNetworkMetered) {
+            transformer.transform( "widenImages", content ); // offsetWidth
+        }
+    }
+
+    document.head.getElementsByTagName("base")[0].setAttribute("href", payload.siteBaseUrl);
 
     // append the content to the DOM now, so that we can obtain
     // dimension measurements for items.
@@ -114,10 +132,6 @@ bridge.registerListener( "displayLeadSection", function( payload ) {
 
     if (!window.isMainPage) {
         transformer.transform( "hideTables", content ); // clickHandler
-
-        if (!window.isNetworkMetered) {
-            transformer.transform( "widenImages", content ); // offsetWidth
-        }
     }
 
     transformer.transform("displayDisambigLink", content);
@@ -138,6 +152,7 @@ bridge.registerListener( "displayLeadSection", function( payload ) {
 });
 
 function clearContents() {
+    lazyLoadTransformer.deregister();
     document.getElementById( "content" ).innerHTML = "";
     window.scrollTo( 0, 0 );
 }
@@ -154,6 +169,7 @@ function buildEditSectionButton(id) {
 }
 
 function elementsForSection( section ) {
+    var lazyDocument;
     var heading = document.createElement( "h" + ( section.toclevel + 1 ) );
     heading.setAttribute( "dir", window.directionality );
     heading.innerHTML = typeof section.line !== "undefined" ? section.line : "";
@@ -163,10 +179,21 @@ function elementsForSection( section ) {
 
     heading.appendChild( buildEditSectionButton( section.id ) );
 
-    var content = document.createElement( "div" );
+    lazyDocument = document.implementation.createHTMLDocument( );
+    var content = lazyDocument.createElement( "div" );
     content.setAttribute( "dir", window.directionality );
-    content.innerHTML = section.text;
     content.id = "content_block_" + section.id;
+    content.innerHTML = section.text;
+
+    if (!window.isMainPage) {
+        if (!window.isFilePage) {
+            lazyLoadTransformer.transform( content );
+        }
+
+        if (!window.isNetworkMetered) {
+            transformer.transform( "widenImages", content ); // offsetWidth
+        }
+    }
 
     // Content service transformations
     if (!window.fromRestBase) {
@@ -184,10 +211,6 @@ function elementsForSection( section ) {
 
     if (!window.isMainPage) {
         transformer.transform( "hideTables", content ); // clickHandler
-
-        if (!window.isNetworkMetered) {
-            transformer.transform( "widenImages", content ); // offsetWidth
-        }
     }
 
     return [ heading, content ];
@@ -204,6 +227,7 @@ bridge.registerListener( "displaySection", function ( payload ) {
             scrolledOnLoad = true;
         }
         document.getElementById( "loading_sections").className = "";
+        lazyLoadTransformer.loadImages();
         bridge.sendMessage( "pageLoadComplete", {
           "sequence": payload.sequence });
     } else {

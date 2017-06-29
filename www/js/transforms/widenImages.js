@@ -7,7 +7,6 @@ var maxStretchRatioAllowedBeforeRequestingHigherResolution = 1.3;
 function isGalleryImage(image) {
   return (
       image.width >= 64 &&
-      image.hasAttribute('srcset') &&
       image.parentNode.className === "image"
     );
 }
